@@ -5,6 +5,8 @@ Kullanım:
 
 Çıktı: <cikti>/ilceler.json ve <cikti>/vakitler/<ilce_id>.json.
 Herhangi bir hata olursa sıfırdan farklı kodla çıkar ve <cikti>'ya hiçbir şey yazmaz.
+Tek istisna: tam çalışmada (--ilce yok) kaynağa erişilemeyen en çok EN_COK_ATLANAN ilçe atlanır;
+o ilçelerin dosyası yazılmaz (önceki yayındaki dosya yerinde kalır).
 Yalnız standart kütüphane.
 """
 
@@ -43,6 +45,9 @@ AZAMI_GUNLUK_FARK = 5  # dk: ardışık iki günde aynı vakit
 AZAMI_REVIZYON_FARK = 5  # dk: önceki yayınla aynı gün aynı vakit
 OGLE_BANDI = ("11:00", "14:30")  # Türkiye için geniş bant
 EN_AZ_IL = 81  # tam çalışmada dizindeki il sayısı
+# Tam çalışmada kaynağa erişilemeyen (ör. kalıcı 502/504) en çok bu kadar ilçe atlanır; fazlası yayını durdurur.
+# Yalnız erişim hatası atlanır; bozuk/makul olmayan veri yine tüm yayını durdurur.
+EN_COK_ATLANAN = 10
 
 # fullmatch + [0-9]: sondaki "\n" ve Unicode rakamlar kabul edilmez
 SAAT_RE = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
@@ -52,6 +57,10 @@ KIMLIK_RE = re.compile(r"[0-9]{1,8}")
 
 class VeriHatasi(Exception):
     pass
+
+
+class KaynakErisimHatasi(VeriHatasi):
+    """Kaynak, yeniden denemelere rağmen yanıt vermedi (ağ/HTTP/bozuk JSON)."""
 
 
 def kimlik_dogrula(deger, ad="kimlik"):
@@ -104,7 +113,7 @@ class NazikIstemci:
                 return json.loads(self.getir(url))
             except (OSError, ValueError) as hata:  # ağ/HTTP/zaman aşımı/bozuk JSON
                 son_hata = hata
-        raise VeriHatasi(f"{url}: {YENIDEN_DENEME + 1} denemede alınamadı: {son_hata}")
+        raise KaynakErisimHatasi(f"{url}: {YENIDEN_DENEME + 1} denemede alınamadı: {son_hata}")
 
 
 def gun_cevir(ham):
@@ -322,6 +331,8 @@ def calistir(kaynak, cikti, onceki=None, ilce_idler=None, dizin_yalniz=False, si
         hedefler = list(ilce_bilgisi)
 
     dosyalar = []  # (göreli yol, veri)
+    atlanan = []
+    tam_calisma = not ilce_idler
     for sira, ilce_id in enumerate(hedefler, 1):
         ilce_adi, il_adi = ilce_bilgisi[ilce_id]
         try:
@@ -338,10 +349,19 @@ def calistir(kaynak, cikti, onceki=None, ilce_idler=None, dizin_yalniz=False, si
             }
             dogrula_vakit(veri, bugun)
             makullik_denetle(gunler, onceki_gunler, yeni_gunler)
+        except KaynakErisimHatasi as hata:
+            if not tam_calisma:
+                raise VeriHatasi(f"ilçe {ilce_id} ({ilce_adi}): {hata}")
+            atlanan.append(ilce_id)
+            # "::warning::" GitHub Actions'ta koşu özetine uyarı olarak düşer.
+            kayit(f"::warning::[{sira}/{len(hedefler)}] {ilce_id} {il_adi}/{ilce_adi} ATLANDI: {hata}")
+            continue
         except VeriHatasi as hata:
             raise VeriHatasi(f"ilçe {ilce_id} ({ilce_adi}): {hata}")
         dosyalar.append((os.path.join("vakitler", f"{ilce_id}.json"), veri))
         kayit(f"[{sira}/{len(hedefler)}] {ilce_id} {il_adi}/{ilce_adi}: {gunler[0]['tarih']}..{gunler[-1]['tarih']}")
+    if len(atlanan) > EN_COK_ATLANAN:
+        raise VeriHatasi(f"{len(atlanan)} ilçeye kaynaktan erişilemedi (sınır {EN_COK_ATLANAN}): {atlanan}")
     dosyalar.append(("ilceler.json", dizin))
 
     cikti = os.path.abspath(cikti)
@@ -365,7 +385,7 @@ def calistir(kaynak, cikti, onceki=None, ilce_idler=None, dizin_yalniz=False, si
         os.makedirs(os.path.join(cikti, "vakitler"), exist_ok=True)
         for goreli, _ in dosyalar:
             os.replace(os.path.join(gecici, goreli), os.path.join(cikti, goreli))
-    kayit(f"yazıldı: {cikti} ({len(dosyalar) - 1} ilçe + ilceler.json)")
+    kayit(f"yazıldı: {cikti} ({len(dosyalar) - 1} ilçe + ilceler.json; atlanan {len(atlanan)}: {atlanan})")
 
 
 def main(argv=None, kaynak=None):

@@ -458,6 +458,58 @@ class IlcelerDogrulamaTesti(unittest.TestCase):
                 vu.dogrula_dizin(d)
 
 
+class TamCalismadaErisilemeyenIlceTesti(CiktiDokunulmamisTabani):
+    """Tam çalışmada kaynağa erişilemeyen ilçe atlanır; bozuk veri ve --ilce çalışması yine fail-closed."""
+
+    def setUp(self):
+        super().setUp()
+        yama = mock.patch.object(vu, "EN_AZ_IL", 1)  # fikstür dizininde 2 il var
+        yama.start()
+        self.addCleanup(yama.stop)
+
+    def _erisilemez(self, *ilceler):
+        hata = vu.KaynakErisimHatasi("HTTP Error 502: Bad Gateway")
+        return vu.EmushafKaynak(tv.SahteIstemci({f"{ADRES}/vakitler/{i}": hata for i in ilceler}))
+
+    def test_istemci_kalici_hatada_erisim_hatasi_firlatir(self):
+        def getir(url):
+            raise OSError("504")
+
+        istemci = vu.NazikIstemci(getir=getir, bekle=lambda sn: None, saat=lambda: 0.0)
+        with self.assertRaises(vu.KaynakErisimHatasi):
+            istemci.json_getir("u")
+
+    def test_erisilemeyen_ilce_atlanir_digerleri_yazilir_eski_dosya_kalir(self):
+        self.assertEqual(self._main(self._erisilemez("9206")), 0)
+        yazilan = sorted(os.listdir(os.path.join(self.cikti, "vakitler")))
+        self.assertEqual(yazilan, ["9205.json", "9206.json", "9207.json", "9535.json", "9541.json"])
+        with open(os.path.join(self.cikti, "vakitler", "9206.json"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "ESKI-VAKIT")  # atlanan ilçenin önceki dosyası olduğu gibi
+        with open(os.path.join(self.cikti, "ilceler.json"), encoding="utf-8") as f:
+            vu.dogrula_dizin(json.load(f))  # dizin yine yayımlandı
+
+    def test_sinir_asilirsa_hicbir_sey_yazilmaz(self):
+        with mock.patch.object(vu, "EN_COK_ATLANAN", 1):
+            self._basarisiz_ve_dokunulmamis(self._erisilemez("9205", "9206"))
+
+    def test_sinirda_yayin_yapilir(self):
+        with mock.patch.object(vu, "EN_COK_ATLANAN", 2):
+            self.assertEqual(self._main(self._erisilemez("9205", "9206")), 0)
+
+    def test_bozuk_veri_tam_calismada_da_durdurur(self):
+        bozuk = tv.fikstur("vakitler_ornek.json")
+        bozuk[2] = dict(bozuk[2], Ogle=bozuk[2]["Gunes"])  # artmayan saat
+        kaynak = vu.EmushafKaynak(tv.SahteIstemci({f"{ADRES}/vakitler/9541": bozuk}))
+        self._basarisiz_ve_dokunulmamis(kaynak)
+
+    def test_ilce_listesiyle_calismada_erisim_hatasi_durdurur(self):
+        self._basarisiz_ve_dokunulmamis(self._erisilemez("9541"), "--ilce", "9206", "--ilce", "9541")
+
+    def test_dizin_alinamazsa_durdurur(self):
+        kaynak = vu.EmushafKaynak(tv.SahteIstemci({f"{ADRES}/ilceler/539": vu.KaynakErisimHatasi("504")}))
+        self._basarisiz_ve_dokunulmamis(kaynak)
+
+
 class IsAkisiMetinTesti(unittest.TestCase):
     """GERÇEK YAML ayrıştırması DEĞİLDİR; mevcut yapısal denetimi tamamlayan stdlib metin denetimleri."""
 
