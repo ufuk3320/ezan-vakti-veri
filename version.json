@@ -1,7 +1,7 @@
 {
-  "surumKodu": 2,
-  "surumAdi": "0.1",
-  "apk": "https://github.com/ufuk3320/ezan-vakti-veri/releases/download/v0.1/ezan-vakti-0.1.apk",
-  "sha256": "d9bb555703894e821125c3740be3acfa110b28e3d36fbaa5567107a8fb7ce272",
-  "boyut": 46200052
+  "surumKodu": 3,
+  "surumAdi": "0.2",
+  "apk": "https://github.com/ufuk3320/ezan-vakti-veri/releases/download/v0.2/ezan-vakti-0.2.apk",
+  "sha256": "04ebbd6d9bc727e59e94c286a6eaf691cb2fb18f2874757e06e3d4d5cff9175f",
+  "boyut": 46200048
 }
