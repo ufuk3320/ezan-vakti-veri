@@ -1,0 +1,56 @@
+name: Vakitler
+
+on:
+  schedule:
+    - cron: '17 3 * * 2'  # her Salı 03:17 UTC; kaynak ~24 gün ileri verdiği için haftalık
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vakitler
+  cancel-in-progress: false
+
+jobs:
+  uret:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Betiği al
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Betik testleri
+        run: python -m unittest discover -s veri -v
+
+      - name: gh-pages dalını hazırla
+        run: |
+          set -eu
+          YAYIN="$RUNNER_TEMP/yayin"
+          if git ls-remote --exit-code --heads origin gh-pages > /dev/null; then
+            git fetch --depth=1 origin gh-pages
+            git worktree add -B gh-pages "$YAYIN" FETCH_HEAD
+          else
+            git worktree add --orphan -b gh-pages "$YAYIN"
+          fi
+
+      - name: Vakitleri üret
+        run: python veri/vakit_uret.py --onceki "$RUNNER_TEMP/yayin" --cikti "$RUNNER_TEMP/yeni"
+
+      - name: gh-pages dalına yayınla
+        run: |
+          set -eu
+          cd "$RUNNER_TEMP/yayin"
+          cp -R "$RUNNER_TEMP/yeni/." .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Değişiklik yok."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Vakitler güncellendi"
+          git push origin gh-pages
